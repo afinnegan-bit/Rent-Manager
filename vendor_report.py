@@ -26,7 +26,6 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import atexit
 import csv
 import datetime as dt
 import os
@@ -52,6 +51,13 @@ class RentManager:
         if not username or not password:
             sys.exit("Set RM_USERNAME and RM_PASSWORD.")
         self.http = httpx.Client(base_url=base_url.rstrip("/"), timeout=120)
+        # Rent Manager caps concurrent logins per user and sessions only end when they
+        # time out, so reuse a saved token (RM_TOKEN_FILE) instead of logging in each run.
+        self.token_file = os.environ.get("RM_TOKEN_FILE")
+        if self.token_file and os.path.exists(self.token_file):
+            self.http.headers[TOKEN_HEADER] = open(self.token_file).read().strip()
+            if self.http.get("/Properties", params={"pagesize": 1, "fields": "PropertyID"}).status_code == 200:
+                return
         resp = self.http.post(
             "/Authentication/AuthorizeUser",
             json={
@@ -64,16 +70,10 @@ class RentManager:
             sys.exit(f"Rent Manager login failed ({resp.status_code}): {resp.text[:500]}")
         token = resp.json() if resp.text.startswith('"') else resp.text.strip()
         self.http.headers[TOKEN_HEADER] = token
-        # Rent Manager caps concurrent logins per user, so always sign out.
-        atexit.register(self.close)
-
-    def close(self) -> None:
-        if TOKEN_HEADER in self.http.headers:
-            try:
-                self.http.post("/Authentication/DeAuthorize")
-            except httpx.HTTPError:
-                pass
-            del self.http.headers[TOKEN_HEADER]
+        if self.token_file:
+            fd = os.open(self.token_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write(token)
 
     def get_all(self, path: str, **params: Any) -> list[dict]:
         """GET every page of a list endpoint."""

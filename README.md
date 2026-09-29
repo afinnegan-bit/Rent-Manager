@@ -87,3 +87,13 @@ uv run vendor_report.py                      # property group named "AG"
 uv run vendor_report.py --name-prefix AG     # or: ShortName starts with "AG"
 uv run vendor_report.py --property-ids 1,2,3 --months 12 --out AG_vendors.xlsx
 ```
+
+## V-COH rehab status report
+
+`vcoh_report.py` rebuilds the "CPCM V-COH Inventory" report for one community (the API can't run Report Writer reports) and adds rehab spend. For each home in Make Ready, Delivered or Ready status it shows purchase price, rehab and utility bills (tagged to the home, or naming its lot in the bill comment), the Make Ready service issue's checklist progress, and the latest dated note.
+
+```bash
+RM_TOKEN_FILE=~/.rm_token uv run vcoh_report.py --community CDMH --out CDMH_VCOH.xlsx
+```
+
+`RM_TOKEN_FILE` reuses one Rent Manager session between runs. Rent Manager limits how many sessions a user can have open at once.
