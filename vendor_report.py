@@ -129,13 +129,17 @@ def _first(*vals: Any) -> str:
     return ""
 
 
+PHONE_TYPES: dict[int, str] = {}
+
+
 def _phones(obj: dict) -> list[str]:
     out = []
     for ph in obj.get("PhoneNumbers") or []:
-        num = _first(ph.get("PhoneNumber"), ph.get("Number"))
+        num = _first(ph.get("PhoneNumber"), ph.get("Number"), ph.get("StrippedPhoneNumber"))
         if not num:
             continue
-        kind = _first((ph.get("PhoneNumberType") or {}).get("Name"), ph.get("PhoneNumberTypeName"))
+        kind = _first((ph.get("PhoneNumberType") or {}).get("Name"), ph.get("PhoneNumberTypeName"),
+                      PHONE_TYPES.get(ph.get("PhoneNumberTypeID")))
         ext = _first(ph.get("Extension"))
         out.append(f"{num}{' x' + ext if ext else ''}{' (' + kind + ')' if kind else ''}")
     for key in ("Phone", "PhoneNumber", "WorkPhone", "MobilePhone"):
@@ -158,8 +162,13 @@ def _address(obj: dict) -> str:
     return ""
 
 
+def _name(contact: dict) -> str:
+    name = f"{_first(contact.get('FirstName'))} {_first(contact.get('LastName'))}".strip()
+    return "" if name.lower() == "main contact" else name  # Rent Manager's placeholder name
+
+
 def _contacts(vendor: dict) -> list[dict]:
-    contacts = vendor.get("Contacts") or []
+    contacts = [c for c in vendor.get("Contacts") or [] if c.get("IsActive", True)]
     contacts.sort(key=lambda c: not c.get("IsPrimary"))
     return contacts
 
@@ -180,7 +189,10 @@ def build_rows(rm: RentManager, props: dict[int, dict], since: dt.date) -> list[
     last_date: dict[int, str] = {}
 
     for bill in bills:
-        vid = bill.get("VendorID")
+        # Bills carry the vendor as AccountID (AccountType "Vendor") and their own ID as ID.
+        if bill.get("AccountType", "Vendor") != "Vendor":
+            continue
+        vid = bill.get("VendorID", bill.get("AccountID"))
         if vid is None:
             continue
         for d in bill.get("BillDetails") or []:
@@ -188,7 +200,7 @@ def build_rows(rm: RentManager, props: dict[int, dict], since: dt.date) -> list[
             if pid not in props:
                 continue
             spend[vid] += float(d.get("Amount") or 0)
-            bill_ids[vid].add(bill.get("BillID"))
+            bill_ids[vid].add(bill.get("BillID", bill.get("ID")))
             vendor_props[vid].add(pid)
             date = str(bill.get("TransactionDate") or "")[:10]
             if date > last_date.get(vid, ""):
@@ -197,6 +209,10 @@ def build_rows(rm: RentManager, props: dict[int, dict], since: dt.date) -> list[
     if not vendor_props:
         return []
 
+    try:
+        PHONE_TYPES.update({t["PhoneNumberTypeID"]: t.get("Name", "") for t in rm.get_all("/PhoneNumberTypes")})
+    except RuntimeError:
+        pass
     vendors = {
         v["VendorID"]: v
         for v in rm.get_all("/Vendors", embeds="Contacts,Contacts.PhoneNumbers,Addresses,PhoneNumbers")
@@ -213,7 +229,7 @@ def build_rows(rm: RentManager, props: dict[int, dict], since: dt.date) -> list[
         primary = contacts[0] if contacts else {}
         others = "; ".join(
             " ".join(x for x in (
-                _first(c.get("FirstName")) + " " + _first(c.get("LastName")),
+                _name(c),
                 _first(c.get("Email")),
                 ", ".join(_phones(c)),
             ) if x.strip())
@@ -222,8 +238,9 @@ def build_rows(rm: RentManager, props: dict[int, dict], since: dt.date) -> list[
         rows.append({
             "Vendor ID": vid,
             "Vendor": _first(v.get("Name"), v.get("DisplayName"), f"Vendor {vid}"),
+            "Category": _first(v.get("Category")),
             "Active": v.get("IsActive", ""),
-            "Primary Contact": f"{_first(primary.get('FirstName'))} {_first(primary.get('LastName'))}".strip(),
+            "Primary Contact": _name(primary),
             "Email": _first(primary.get("Email"), v.get("Email")),
             "Phone": ", ".join(_phones(primary) or _phones(v)),
             "Address": _address(v) or _address(primary),
