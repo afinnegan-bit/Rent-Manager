@@ -26,6 +26,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import atexit
 import csv
 import datetime as dt
 import os
@@ -63,6 +64,16 @@ class RentManager:
             sys.exit(f"Rent Manager login failed ({resp.status_code}): {resp.text[:500]}")
         token = resp.json() if resp.text.startswith('"') else resp.text.strip()
         self.http.headers[TOKEN_HEADER] = token
+        # Rent Manager caps concurrent logins per user, so always sign out.
+        atexit.register(self.close)
+
+    def close(self) -> None:
+        if TOKEN_HEADER in self.http.headers:
+            try:
+                self.http.post("/Authentication/DeAuthorize")
+            except httpx.HTTPError:
+                pass
+            del self.http.headers[TOKEN_HEADER]
 
     def get_all(self, path: str, **params: Any) -> list[dict]:
         """GET every page of a list endpoint."""
