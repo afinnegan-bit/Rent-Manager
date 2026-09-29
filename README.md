@@ -77,3 +77,13 @@ Filters use Rent Manager syntax: `Field,operator,value`, with clauses joined by 
 - Your credentials stay in your local Claude config and are only sent to `*.api.rentmanager.com`. Don't commit them to this repo.
 - Use a dedicated, least-privilege Rent Manager user so you can revoke it on its own.
 - Data Claude reads (for example, tenant PII) is sent to Claude as part of the conversation. Follow your company's data policies.
+
+## Vendor contact report
+
+`vendor_report.py` lists every vendor billed to a group of properties over the last 12 months, with their contacts from Rent Manager, and saves it as Excel and CSV. It uses the same `RM_*` environment variables.
+
+```bash
+uv run vendor_report.py                      # property group named "AG"
+uv run vendor_report.py --name-prefix AG     # or: ShortName starts with "AG"
+uv run vendor_report.py --property-ids 1,2,3 --months 12 --out AG_vendors.xlsx
+```
